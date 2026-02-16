@@ -24,14 +24,6 @@
             {
               "name": "orgTypesCsv",
               "value": "школа,детский сад,лицей,гимназия,центр дополнительного образования,кружок"
-            },
-            {
-              "name": "serperApiKey",
-              "value": "PASTE_SERPER_API_KEY_HERE"
-            },
-            {
-              "name": "gsheetId",
-              "value": "PASTE_GOOGLE_SHEET_ID_HERE"
             }
           ],
           "number": [
@@ -53,7 +45,7 @@
     },
     {
       "parameters": {
-        "functionCode": "const regions = ($json.regionsCsv || '').split(',').map(s => s.trim()).filter(Boolean);\nconst orgTypes = ($json.orgTypesCsv || '').split(',').map(s => s.trim()).filter(Boolean);\nconst perQuery = Number($json.searchResultsPerQuery || 10);\nconst serperApiKey = $json.serperApiKey || \"\";\nconst gsheetId = $json.gsheetId || \"\";\nconst out = [];\nfor (const region of regions) {\n  for (const orgType of orgTypes) {\n    out.push({\n      json: {\n        region,\n        orgType,\n        perQuery,\n        serperApiKey,\n        gsheetId,\n        query: `официальный сайт ${orgType} ${region} директор телефон email`\n      }\n    });\n  }\n}\nreturn out;"
+        "functionCode": "const regions = ($json.regionsCsv || '').split(',').map(s => s.trim()).filter(Boolean);\nconst orgTypes = ($json.orgTypesCsv || '').split(',').map(s => s.trim()).filter(Boolean);\nconst perQuery = Number($json.searchResultsPerQuery || 10);\nconst out = [];\nfor (const region of regions) {\n  for (const orgType of orgTypes) {\n    out.push({\n      json: {\n        region,\n        orgType,\n        perQuery,\n        query: `официальный сайт ${orgType} ${region} директор телефон email`\n      }\n    });\n  }\n}\nreturn out;"
       },
       "id": "build_queries",
       "name": "Build Queries",
@@ -87,7 +79,7 @@
           "parameters": [
             {
               "name": "X-API-KEY",
-              "value": "={{$json.serperApiKey}}"
+              "value": "={{$env.SERPER_API_KEY}}"
             },
             {
               "name": "Content-Type",
@@ -117,7 +109,7 @@
     },
     {
       "parameters": {
-        "functionCode": "const region = $item(0).$node['Split In Batches'].json.region;\nconst orgType = $item(0).$node['Split In Batches'].json.orgType;\nconst gsheetId = $item(0).$node['Split In Batches'].json.gsheetId || \"\";\nconst organic = $json.organic || [];\nreturn organic.map((r) => ({\n  json: {\n    region,\n    orgType,\n    sourceUrl: r.link || '',\n    orgName: r.title || '',\n    snippet: r.snippet || '',\n    gsheetId\n  }\n}));"
+        "functionCode": "const region = $item(0).$node['Split In Batches'].json.region;\nconst orgType = $item(0).$node['Split In Batches'].json.orgType;\nconst organic = $json.organic || [];\nreturn organic.map((r) => ({\n  json: {\n    region,\n    orgType,\n    sourceUrl: r.link || '',\n    orgName: r.title || '',\n    snippet: r.snippet || ''\n  }\n}));"
       },
       "id": "parse_search_results",
       "name": "Parse Search Results",
@@ -152,7 +144,7 @@
     },
     {
       "parameters": {
-        "functionCode": "function firstMatch(text, regex) {\n  const m = text.match(regex);\n  return m ? m[0] : '';\n}\n\nconst item = $item(0).$node['Parse Search Results'].json;\nconst html = typeof $json === 'string' ? $json : (JSON.stringify($json || {}));\nconst text = `${item.orgName}\n${item.snippet}\n${html}`;\n\nconst emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/ig;\nconst phoneRegex = /(?:\\+7|8)[\\s(\\-]*\\d{3}[\\s)\\-]*\\d{3}[\\s\\-]*\\d{2}[\\s\\-]*\\d{2}/g;\nconst fioRegex = /(?:директор|заведующ(?:ий|ая)|руководитель)[:\\s]*([А-ЯЁ][а-яё]+\\s+[А-ЯЁ][а-яё]+(?:\\s+[А-ЯЁ][а-яё]+)?)/i;\n\nconst emails = Array.from(new Set((text.match(emailRegex) || []).map(e => e.toLowerCase())));\nconst phones = Array.from(new Set((text.match(phoneRegex) || []).map(p => p.replace(/\\s+/g, ' ').trim())));\n\nconst mobile = phones.find(p => /\\+7|8/.test(p)) || '';\nconst cityPhone = phones.find(p => p !== mobile) || '';\n\nlet leader = '';\nconst fioMatch = text.match(fioRegex);\nif (fioMatch) leader = fioMatch[1].trim();\n\nconst now = new Date();\nconst currentYear = now.getFullYear().toString();\nconst freshSignals = [currentYear, (now.getFullYear() - 1).toString(), 'обновлено', 'актуаль', 'контакты'];\nconst freshnessScore = freshSignals.reduce((acc, s) => acc + (text.toLowerCase().includes(s.toLowerCase()) ? 1 : 0), 0);\n\nreturn [{\n  json: {\n    region: item.region,\n    organizationType: item.orgType,\n    organizationName: item.orgName,\n    leaderFullName: leader,\n    mobilePhone: mobile,\n    landlinePhone: cityPhone,\n    email: emails[0] || '',\n    sourceUrl: item.sourceUrl,\n    gsheetId: item.gsheetId || \"\",\n    freshnessScore,\n    checkedAt: now.toISOString()\n  }\n}];"
+        "functionCode": "function firstMatch(text, regex) {\n  const m = text.match(regex);\n  return m ? m[0] : '';\n}\n\nconst item = $item(0).$node['Parse Search Results'].json;\nconst html = typeof $json === 'string' ? $json : (JSON.stringify($json || {}));\nconst text = `${item.orgName}\n${item.snippet}\n${html}`;\n\nconst emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/ig;\nconst phoneRegex = /(?:\\+7|8)[\\s(\\-]*\\d{3}[\\s)\\-]*\\d{3}[\\s\\-]*\\d{2}[\\s\\-]*\\d{2}/g;\nconst fioRegex = /(?:директор|заведующ(?:ий|ая)|руководитель)[:\\s]*([А-ЯЁ][а-яё]+\\s+[А-ЯЁ][а-яё]+(?:\\s+[А-ЯЁ][а-яё]+)?)/i;\n\nconst emails = Array.from(new Set((text.match(emailRegex) || []).map(e => e.toLowerCase())));\nconst phones = Array.from(new Set((text.match(phoneRegex) || []).map(p => p.replace(/\\s+/g, ' ').trim())));\n\nconst mobile = phones.find(p => /\\+7|8/.test(p)) || '';\nconst cityPhone = phones.find(p => p !== mobile) || '';\n\nlet leader = '';\nconst fioMatch = text.match(fioRegex);\nif (fioMatch) leader = fioMatch[1].trim();\n\nconst now = new Date();\nconst currentYear = now.getFullYear().toString();\nconst freshSignals = [currentYear, (now.getFullYear() - 1).toString(), 'обновлено', 'актуаль', 'контакты'];\nconst freshnessScore = freshSignals.reduce((acc, s) => acc + (text.toLowerCase().includes(s.toLowerCase()) ? 1 : 0), 0);\n\nreturn [{\n  json: {\n    region: item.region,\n    organizationType: item.orgType,\n    organizationName: item.orgName,\n    leaderFullName: leader,\n    mobilePhone: mobile,\n    landlinePhone: cityPhone,\n    email: emails[0] || '',\n    sourceUrl: item.sourceUrl,\n    freshnessScore,\n    checkedAt: now.toISOString()\n  }\n}];"
       },
       "id": "extract_contacts",
       "name": "Extract Contacts",
@@ -201,7 +193,7 @@
         "documentId": {
           "__rl": true,
           "mode": "id",
-          "value": "={{$json.gsheetId}}"
+          "value": "={{$env.GSHEET_ID}}"
         },
         "sheetName": {
           "__rl": true,
@@ -239,7 +231,13 @@
       "position": [
         820,
         50
-      ]
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
     },
     {
       "parameters": {},
@@ -250,22 +248,6 @@
       "position": [
         820,
         200
-      ]
-    },
-    {
-      "parameters": {
-        "content": "## Как запустить\n1) В ноде **Set Seeds** вставьте `serperApiKey` и `gsheetId`.\n2) В ноде **Upsert to Google Sheets** выберите свои OAuth2 credentials.\n3) Создайте лист `Контакты` с заголовками столбцов.\n4) Нажмите **Execute workflow**.",
-        "height": 260,
-        "width": 420,
-        "color": 5
-      },
-      "id": "how_to_run_note",
-      "name": "How to Run",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        -1180,
-        -220
       ]
     }
   ],

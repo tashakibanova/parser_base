@@ -1,0 +1,406 @@
+{
+  "name": "Edu Contacts Agent (n8n 1.123.18)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual_trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "regionsCsv",
+              "value": "Москва,Санкт-Петербург,Московская область,Ленинградская область,Новосибирская область,Свердловская область,Краснодарский край,Республика Татарстан"
+            },
+            {
+              "name": "orgTypesCsv",
+              "value": "школа,детский сад,лицей,гимназия,центр дополнительного образования,кружок"
+            },
+            {
+              "name": "serperApiKey",
+              "value": "PASTE_SERPER_API_KEY_HERE"
+            },
+            {
+              "name": "gsheetId",
+              "value": "PASTE_GOOGLE_SHEET_ID_HERE"
+            }
+          ],
+          "number": [
+            {
+              "name": "searchResultsPerQuery",
+              "value": 10
+            },
+            {
+              "name": "pagesPerQuery",
+              "value": 3
+            }
+          ]
+        }
+      },
+      "id": "set_seed",
+      "name": "Set Seeds",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -980,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const defaultRegionsCsv = 'Москва,Санкт-Петербург,Московская область';\nconst defaultOrgTypesCsv = 'школа,детский сад,лицей';\n\nconst regions = ($json.regionsCsv || defaultRegionsCsv).split(',').map(s => s.trim()).filter(Boolean);\nconst orgTypes = ($json.orgTypesCsv || defaultOrgTypesCsv).split(',').map(s => s.trim()).filter(Boolean);\nconst perQueryRaw = Number($json.searchResultsPerQuery || 10);\nconst perQuery = Math.max(1, Math.min(100, perQueryRaw));\nconst pagesRaw = Number($json.pagesPerQuery || 1);\nconst pagesPerQuery = Math.max(1, Math.min(10, pagesRaw));\nconst serperApiKey = $json.serperApiKey || '';\nconst gsheetId = $json.gsheetId || '';\n\nif (!serperApiKey) {\n  throw new Error('Set Seeds: заполните поле serperApiKey');\n}\nif (!gsheetId) {\n  throw new Error('Set Seeds: заполните поле gsheetId');\n}\n\nconst out = [];\nfor (const region of regions) {\n  for (const orgType of orgTypes) {\n    for (let page = 1; page <= pagesPerQuery; page += 1) {\n      out.push({\n        json: {\n          region,\n          orgType,\n          perQuery,\n          page,\n          pagesPerQuery,\n          serperApiKey,\n          gsheetId,\n          query: `официальный сайт ${orgType} ${region} директор телефон email`\n        }\n      });\n    }\n  }\n}\n\nreturn out;"
+      },
+      "id": "build_queries",
+      "name": "Build Queries",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split_in_batches",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -550,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "={{$json.serperApiKey}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { q: $json.query, gl: 'ru', hl: 'ru', num: $json.perQuery, page: $json.page } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "search_serper",
+      "name": "Search (Serper)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -330,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const region = $item(0).$node['Split In Batches'].json.region;\nconst orgType = $item(0).$node['Split In Batches'].json.orgType;\nconst gsheetId = $item(0).$node['Split In Batches'].json.gsheetId || \"\";\nconst page = Number($item(0).$node['Split In Batches'].json.page || 1);\nconst organic = $json.organic || [];\nreturn organic.map((r) => ({\n  json: {\n    region,\n    orgType,\n    page,\n    sourceUrl: r.link || '',\n    orgName: r.title || '',\n    snippet: r.snippet || '',\n    gsheetId\n  }\n}));"
+      },
+      "id": "parse_search_results",
+      "name": "Parse Search Results",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -110,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.sourceUrl}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "string"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "fetch_page",
+      "name": "Fetch Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        100
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "function firstMatch(text, regex) {\n  const m = text.match(regex);\n  return m ? m[0] : '';\n}\n\nconst item = $item(0).$node['Parse Search Results'].json;\nconst html = typeof $json === 'string' ? $json : (JSON.stringify($json || {}));\nconst text = `${item.orgName}\n${item.snippet}\n${html}`;\n\nconst emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/ig;\nconst phoneRegex = /(?:\\+7|8)[\\s(\\-]*\\d{3}[\\s)\\-]*\\d{3}[\\s\\-]*\\d{2}[\\s\\-]*\\d{2}/g;\nconst fioRegex = /(?:директор|заведующ(?:ий|ая)|руководитель)[:\\s]*([А-ЯЁ][а-яё]+\\s+[А-ЯЁ][а-яё]+(?:\\s+[А-ЯЁ][а-яё]+)?)/i;\n\nconst emails = Array.from(new Set((text.match(emailRegex) || []).map(e => e.toLowerCase())));\nconst phones = Array.from(new Set((text.match(phoneRegex) || []).map(p => p.replace(/\\s+/g, ' ').trim())));\n\nconst mobile = phones.find(p => /\\+7|8/.test(p)) || '';\nconst cityPhone = phones.find(p => p !== mobile) || '';\n\nlet leader = '';\nconst fioMatch = text.match(fioRegex);\nif (fioMatch) leader = fioMatch[1].trim();\n\nconst now = new Date();\nconst currentYear = now.getFullYear().toString();\nconst freshSignals = [currentYear, (now.getFullYear() - 1).toString(), 'обновлено', 'актуаль', 'контакты'];\nconst freshnessScore = freshSignals.reduce((acc, s) => acc + (text.toLowerCase().includes(s.toLowerCase()) ? 1 : 0), 0);\n\nreturn [{\n  json: {\n    region: item.region,\n    organizationType: item.orgType,\n    organizationName: item.orgName,\n    leaderFullName: leader,\n    mobilePhone: mobile,\n    landlinePhone: cityPhone,\n    email: emails[0] || '',\n    sourceUrl: item.sourceUrl,\n    gsheetId: item.gsheetId || \"\",\n    freshnessScore,\n    checkedAt: now.toISOString(),\n    hasAnyContact: Boolean(leader || emails[0] || mobile || cityPhone)\n  }\n}];"
+      },
+      "id": "extract_contacts",
+      "name": "Extract Contacts",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        350,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.organizationName}}",
+              "operation": "isNotEmpty"
+            }
+          ],
+          "boolean": [
+            {
+              "value1": "={{$json.hasAnyContact}}",
+              "operation": "isTrue"
+            }
+          ]
+        },
+        "combineOperation": "all"
+      },
+      "id": "filter_valid",
+      "name": "Filter Valid & Fresh",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        580,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{$json.gsheetId}}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Контакты"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Регион": "={{$json.region}}",
+            "Вид организации": "={{$json.organizationType}}",
+            "Название организации": "={{$json.organizationName}}",
+            "ФИО руководителя": "={{$json.leaderFullName}}",
+            "Телефон сотовый": "={{$json.mobilePhone}}",
+            "Телефон городской": "={{$json.landlinePhone}}",
+            "Емайл": "={{$json.email}}",
+            "Источник": "={{$json.sourceUrl}}",
+            "Дата проверки": "={{$json.checkedAt}}"
+          },
+          "matchingColumns": [
+            "Регион",
+            "Вид организации",
+            "Название организации",
+            "Источник"
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "upsert_sheets",
+      "name": "Upsert to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        820,
+        50
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "next_batch",
+      "name": "Next Batch",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        820,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Как запустить\n1) В ноде **Set Seeds** вставьте `serperApiKey` и `gsheetId`.\n2) В ноде **Upsert to Google Sheets** выберите свои OAuth2 credentials.\n3) Создайте лист `Контакты` с заголовками столбцов.\n4) Нажмите **Execute workflow**.",
+        "height": 260,
+        "width": 420,
+        "color": 5
+      },
+      "id": "how_to_run_note",
+      "name": "How to Run",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1180,
+        -220
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Seeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Seeds": {
+      "main": [
+        [
+          {
+            "node": "Build Queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Queries": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Search (Serper)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Next Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search (Serper)": {
+      "main": [
+        [
+          {
+            "node": "Parse Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Search Results": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Page": {
+      "main": [
+        [
+          {
+            "node": "Extract Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Contacts": {
+      "main": [
+        [
+          {
+            "node": "Filter Valid & Fresh",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Valid & Fresh": {
+      "main": [
+        [
+          {
+            "node": "Upsert to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Upsert to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
